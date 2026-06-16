@@ -1,0 +1,146 @@
+default:
+  image: docker:25.0.3-dind
+  tags:
+    - arm64-runner
+  before_script:
+    # Install git + certs (docker:dind is minimal)
+    - apk add --no-cache git openssh-client ca-certificates
+    # Start Docker daemon inside the job container
+    - dockerd -l fatal &
+    - sleep 5
+
+variables:
+  # Kubernetes resources
+  KUBERNETES_CPU_REQUEST: "4"
+  KUBERNETES_MEMORY_REQUEST: "16G"
+  KUBERNETES_EPHEMERAL_STORAGE_REQUEST: "40G"
+  KUBERNETES_POD_ANNOTATIONS_1: "MOUNT_EFS=/data"
+
+  # Docker image details
+  IMAGE_REGISTRY: artifacts.codelinaro.org
+  IMAGE_PATH: iot-solutions-microservices
+  SERVER_IMAGE_NAME: vehicle-analytics/vehicle-analytics-server
+  SERVER_IMAGE_TAG: 1.0.3
+  API_IMAGE_NAME: vehicle-analytics/vehicle-analytics-api
+  API_IMAGE_TAG: 1.0.3
+
+  FULL_SERVER_IMAGE_NAME: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${SERVER_IMAGE_NAME}:${SERVER_IMAGE_TAG}"
+  FULL_SERVER_IMAGE_LATEST: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${SERVER_IMAGE_NAME}:latest"
+
+  FULL_API_IMAGE_NAME: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${API_IMAGE_NAME}:${API_IMAGE_TAG}"
+  FULL_API_IMAGE_LATEST: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${API_IMAGE_NAME}:latest"
+
+
+  DOCKER_BUILDKIT: "1"
+  TARGET_ARCH: "linux/arm64"
+
+  # ---------------------------------------------------------
+  # Source fetch details (CodeLinaro GitLab)
+  # ---------------------------------------------------------
+  SOLUTIONS_MICROSERVICES_REPO_URL: "https://git.codelinaro.org/clo/le/solutions-microservices.git"
+  SOLUTIONS_MICROSERVICES_BRANCH: "iot-solutions.lnx.1.0"
+  SOLUTIONS_MICROSERVICES_COMMIT: "a74eac493127b79be8d699d9187b636623f2a516"
+  VEHICLE_SOURCE_PATH: microservices/analytics/vehicle-analytics
+  SERVER_SRC_DIR: "vehicle-analytics-server"
+  SERVER_SRC_DIR_DOCKERFILE: "Dockerfile"
+  API_SRC_DIR: "vehicle-analytics-api"
+  API_SRC_DIR_DOCKERFILE: "Dockerfile"
+
+stages:
+  - build
+  - test
+
+# ---------------------------------------------------------
+# Build & push the final runtime image (version + latest)
+# ---------------------------------------------------------
+build-image:
+  stage: build
+  script:
+    - echo "Checking Docker daemon"
+    - docker version
+    - docker info
+
+    - echo "Logging into JFrog Docker registry"
+    - echo "$JFROG_PASSWORD" | docker login -u "$JFROG_USERNAME" --password-stdin "$IMAGE_REGISTRY"
+
+    - echo "Cloning solutions-microservices from CodeLinaro"
+    - rm -rf solutions-microservices
+    - git clone --no-tags --single-branch --branch "${SOLUTIONS_MICROSERVICES_BRANCH}" "${SOLUTIONS_MICROSERVICES_REPO_URL}" solutions-microservices
+    - cd solutions-microservices
+    - git fetch --depth 1 origin "${SOLUTIONS_MICROSERVICES_COMMIT}"
+    - git checkout "${SOLUTIONS_MICROSERVICES_COMMIT}"
+    - git rev-parse HEAD
+
+    - cd ${VEHICLE_SOURCE_PATH}
+
+    # Build Vehicle Analytics Server
+    - echo "Building Vehicle Analytics Server Docker image (ARM64) from checked-out sources"
+    - cd "${SERVER_SRC_DIR}"
+    - echo "Patching Dockerfile - swapping Qualcomm private registry base image to ubuntu:22.04"
+    - sed -i 's|FROM docker-registry.qualcomm.com/library/ubuntu:22.04|FROM ubuntu:22.04|g' "${SERVER_SRC_DIR_DOCKERFILE}"
+    - grep "^FROM" "${SERVER_SRC_DIR_DOCKERFILE}"
+    - |
+      docker build \
+        --platform "${TARGET_ARCH}" \
+        -t "${FULL_SERVER_IMAGE_NAME}" \
+        -f "${SERVER_SRC_DIR_DOCKERFILE}" \
+        .
+
+    # Ensure local 'latest' tag doesn't point to an older image before re-tagging
+    - echo "Clearing any existing local :latest tag (safe if missing)"
+    - docker rmi "${FULL_SERVER_IMAGE_LATEST}" 2>/dev/null || true
+
+    - echo "Tagging the just-built image as :latest"
+    - docker tag "${FULL_SERVER_IMAGE_NAME}" "${FULL_SERVER_IMAGE_LATEST}"
+
+    - echo "Pushing versioned image to Artifactory"
+    - docker push "${FULL_SERVER_IMAGE_NAME}"
+
+    - echo "Pushing :latest tag to Artifactory"
+    - docker push "${FULL_SERVER_IMAGE_LATEST}"
+
+    # Go back to root directory
+    - cd ..
+
+    # Build Vehicle Analytics API
+    - echo "Building Vehicle Analytics API Docker image (ARM64) from checked-out sources"
+    - cd "${API_SRC_DIR}"
+    - |
+      docker build \
+        --platform "${TARGET_ARCH}" \
+        -t "${FULL_API_IMAGE_NAME}" \
+        -f "${API_SRC_DIR_DOCKERFILE}" \
+        .
+
+    # Ensure local 'latest' tag doesn't point to an older image before re-tagging
+    - echo "Clearing any existing local :latest tag (safe if missing)"
+    - docker rmi "${FULL_API_IMAGE_LATEST}" 2>/dev/null || true
+
+    - echo "Tagging the just-built image as :latest"
+    - docker tag "${FULL_API_IMAGE_NAME}" "${FULL_API_IMAGE_LATEST}"
+
+    - echo "Pushing versioned image to Artifactory"
+    - docker push "${FULL_API_IMAGE_NAME}"
+
+    - echo "Pushing :latest tag to Artifactory"
+    - docker push "${FULL_API_IMAGE_LATEST}"
+
+test-with-server-image:
+  stage: test
+  script:
+    - echo "Logging into JFrog"
+    - echo "$JFROG_PASSWORD" | docker login -u "$JFROG_USERNAME" --password-stdin artifacts.codelinaro.org
+
+    - echo "Running container from built server image"
+    - docker run --rm --entrypoint sh -v /data:/data "$FULL_SERVER_IMAGE_NAME" -c "uname -a && cat /etc/os-release && df -h /data"
+
+
+test-with-api-image:
+  stage: test
+  script:
+    - echo "Logging into JFrog"
+    - echo "$JFROG_PASSWORD" | docker login -u "$JFROG_USERNAME" --password-stdin artifacts.codelinaro.org
+
+    - echo "Running container from built image"
+    - docker run --rm --entrypoint sh -v /data:/data "$FULL_API_IMAGE_NAME" -c "uname -a && cat /etc/os-release && df -h /data"
+ 
