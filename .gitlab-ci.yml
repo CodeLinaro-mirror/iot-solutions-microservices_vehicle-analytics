@@ -19,10 +19,10 @@ variables:
   # Docker image details
   IMAGE_REGISTRY: artifacts.codelinaro.org
   IMAGE_PATH: iot-solutions-microservices
-  SERVER_IMAGE_NAME: vehicle-analytics/vehicle-analytics-server
-  SERVER_IMAGE_TAG: 1.0.3
-  API_IMAGE_NAME: vehicle-analytics/vehicle-analytics-api
-  API_IMAGE_TAG: 1.0.3
+  SERVER_IMAGE_NAME: vehicle-analytics-server
+  SERVER_IMAGE_TAG: 1.0.0
+  API_IMAGE_NAME: vehicle-analytics-api
+  API_IMAGE_TAG: 1.0.0
 
   FULL_SERVER_IMAGE_NAME: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${SERVER_IMAGE_NAME}:${SERVER_IMAGE_TAG}"
   FULL_SERVER_IMAGE_LATEST: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${SERVER_IMAGE_NAME}:latest"
