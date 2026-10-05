@@ -39,7 +39,7 @@ variables:
   # ---------------------------------------------------------
   SOLUTIONS_MICROSERVICES_REPO_URL: "https://git.codelinaro.org/clo/le/solutions-microservices.git"
   SOLUTIONS_MICROSERVICES_BRANCH: "iot-solutions.lnx.1.0"
-  SOLUTIONS_MICROSERVICES_COMMIT: "a74eac493127b79be8d699d9187b636623f2a516"
+  SOLUTIONS_MICROSERVICES_COMMIT: "a589471148d916d8eea23ef6627e101bd1fcd88d"
   VEHICLE_SOURCE_PATH: microservices/analytics/vehicle-analytics
   SERVER_SRC_DIR: "vehicle-analytics-server"
   SERVER_SRC_DIR_DOCKERFILE: "Dockerfile"
